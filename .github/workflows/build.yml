@@ -23,27 +23,53 @@ jobs:
         with:
           gradle-version: '8.0'
 
+      - name: Verify project structure
+        run: |
+          echo "=== Root files ==="
+          ls -la
+          echo "=== app module ==="
+          ls -la app/ || echo "no app dir"
+          echo "=== settings.gradle ==="
+          cat settings.gradle || echo "no settings.gradle"
+
       - name: Build Release APK
-        run: gradle assembleRelease --no-daemon --stacktrace
+        run: gradle :app:assembleRelease --no-daemon --stacktrace
+
+      - name: List build outputs
+        run: find . -name "*.apk" -type f
 
       - name: Sign APK
         run: |
-          APK=$(find . -name "*.apk" -type f | head -1)
-          if [ -z "$APK" ]; then echo "No APK"; exit 0; fi
+          APK=$(find . -name "app-release-unsigned.apk" -type f | head -1)
+          if [ -z "$APK" ]; then
+            APK=$(find . -name "*.apk" -type f | head -1)
+          fi
+          if [ -z "$APK" ]; then
+            echo "No APK found"
+            exit 1
+          fi
           echo "Signing: $APK"
-          keytool -genkeypair -v -keystore mrt1.keystore \
+          
+          keytool -genkeypair -v \
+            -keystore mrt1.keystore \
             -storepass android -keypass android \
             -alias mrt1 -keyalg RSA -keysize 2048 \
             -validity 10000 \
             -dname "CN=MRT1,O=MRT,C=IR"
+          
           APKSIGNER=$(find /usr/local/lib/android -name apksigner -type f 2>/dev/null | head -1)
           if [ -z "$APKSIGNER" ]; then
+            echo "Trying jarsigner"
             jarsigner -keystore mrt1.keystore -storepass android -keypass android "$APK" mrt1
           else
-            $APKSIGNER sign --ks mrt1.keystore \
-              --ks-pass pass:android --key-pass pass:android \
+            echo "Using: $APKSIGNER"
+            $APKSIGNER sign \
+              --ks mrt1.keystore \
+              --ks-pass pass:android \
+              --key-pass pass:android \
               --ks-key-alias mrt1 \
-              --v1-signing-enabled true --v2-signing-enabled true \
+              --v1-signing-enabled true \
+              --v2-signing-enabled true \
               "$APK"
             $APKSIGNER verify "$APK" || true
           fi
@@ -53,4 +79,4 @@ jobs:
         with:
           name: MRT1-APK
           path: '**/*.apk'
-          if-no-files-found: warn
+          if-no-files-found: error
